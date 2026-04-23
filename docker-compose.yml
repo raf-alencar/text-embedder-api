@@ -11,4 +11,6 @@ services:
       - EMBED_DIMENSIONS=${EMBED_DIMENSIONS:-768}
       - API_KEY_HASH=${API_KEY_HASH:-}
       - PORT=3000
+    extra_hosts:
+      - "host-gateway:host-gateway"
     restart: unless-stopped
