@@ -1,0 +1,14 @@
+services:
+  text-embedder-api:
+    build: .
+    container_name: text-embedder-api
+    ports:
+      - "3233:3000"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - EMBED_DIMENSIONS=${EMBED_DIMENSIONS:-768}
+      - API_KEY_HASH=${API_KEY_HASH:-}
+      - PORT=3000
+    restart: unless-stopped
