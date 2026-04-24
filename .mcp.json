@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "stighive-memory": {
+      "type": "http",
+      "url": "http://100.108.111.69:3228/mcp",
+      "headers": {
+        "Authorization": "Bearer stig_fc651ddf2f0bdb42d1d5"
+      }
+    }
+  }
+}
