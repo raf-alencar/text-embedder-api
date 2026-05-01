@@ -37,18 +37,14 @@ cd text-embedder-api
 npm install
 ```
 
-You'll need Ollama running locally with at least one embedding model:
-
-```bash
-ollama pull nomic-embed-text
-```
+You'll need an OpenRouter API key (https://openrouter.ai/keys).
 
 Set environment variables:
 
 ```bash
-export OLLAMA_BASE_URL=http://localhost:11434
-export EMBED_MODEL=nomic-embed-text
-export EMBED_DIMENSIONS=768
+export OPENROUTER_API_KEY=sk-or-v1-...
+export EMBED_MODEL=qwen/qwen3-embedding-4b
+export EMBED_DIMENSIONS=2560
 node server.js
 ```
 
@@ -57,9 +53,9 @@ Or test inside Docker:
 ```bash
 docker build -t text-embedder-api-dev .
 docker run --rm -p 3233:3000 \
-  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-  -e EMBED_MODEL=nomic-embed-text \
-  -e EMBED_DIMENSIONS=768 \
+  -e OPENROUTER_API_KEY=sk-or-v1-... \
+  -e EMBED_MODEL=qwen/qwen3-embedding-4b \
+  -e EMBED_DIMENSIONS=2560 \
   text-embedder-api-dev
 ```
 

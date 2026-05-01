@@ -1,7 +1,7 @@
 {
   "name": "text-embedder-api",
-  "version": "1.0.0",
-  "description": "Self-hosted HTTP API for vector embeddings via Ollama with async PostgreSQL polling",
+  "version": "2.0.0",
+  "description": "Self-hosted HTTP API for vector embeddings via OpenRouter with async PostgreSQL polling",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

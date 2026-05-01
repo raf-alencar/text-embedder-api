@@ -1,14 +1,14 @@
 # text-embedder-api Documentation
 
-**Version:** 1.0.0
+**Version:** 2.0.0
 **Base URL:** `http://localhost:3233`
-**Health check:** `GET /health` — returns status, Ollama connectivity, model, and dimensions
+**Health check:** `GET /health` — returns status, embedding-provider connectivity, model, and dimensions
 
 ---
 
 ## Overview
 
-A self-hosted HTTP API for vector embeddings via Ollama. All embedding endpoints require an `X-API-Key` header. The health check and service info endpoints are open.
+A self-hosted HTTP API for vector embeddings via OpenRouter. All embedding endpoints require an `X-API-Key` header. The health check and service info endpoints are open.
 
 ### Auth
 
@@ -39,10 +39,11 @@ Returns service name, version, model configuration, and full endpoint listing.
 {
   "status": "ok",
   "service": "text-embedder-api",
-  "version": "1.0.0",
-  "model": "nomic-embed-text",
-  "dimensions": 768,
-  "ollama_url": "http://...",
+  "version": "2.0.0",
+  "provider": "openrouter",
+  "provider_url": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3-embedding-4b",
+  "dimensions": 2560,
   "registered_services": 2,
   "endpoints": [...]
 }
@@ -52,14 +53,14 @@ Returns service name, version, model configuration, and full endpoint listing.
 
 ### `GET /health`
 
-Pings the Ollama embedding endpoint with a test string. Use this for uptime monitoring.
+Pings the OpenRouter embedding endpoint with a test string. Use this for uptime monitoring.
 
 **Returns:**
 ```json
-{ "status": "ok", "ollama": "ok", "model": "nomic-embed-text", "dimensions": 768 }
+{ "status": "ok", "provider": "openrouter", "model": "qwen/qwen3-embedding-4b", "dimensions": 2560 }
 ```
 
-Returns `503` if Ollama is unreachable.
+Returns `503` if OpenRouter is unreachable.
 
 ---
 
@@ -70,9 +71,10 @@ Returns model configuration so consuming services can verify compatibility befor
 **Returns:**
 ```json
 {
-  "model": "nomic-embed-text",
-  "dimensions": 768,
-  "ollama_url": "http://...",
+  "provider": "openrouter",
+  "provider_url": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3-embedding-4b",
+  "dimensions": 2560,
   "registered_services": 2
 }
 ```
@@ -104,8 +106,9 @@ Content-Type: application/json
 ```json
 {
   "embedding": [0.023, -0.041, 0.118, ...],
-  "dimensions": 768,
-  "model": "nomic-embed-text"
+  "dimensions": 2560,
+  "model": "qwen/qwen3-embedding-4b",
+  "usage": { "prompt_tokens": 9, "total_tokens": 9, "cost": 1.8e-7 }
 }
 ```
 
@@ -144,9 +147,10 @@ Content-Type: application/json
     [0.118, 0.205, ...],
     [-0.033, 0.091, ...]
   ],
-  "dimensions": 768,
-  "model": "nomic-embed-text",
-  "count": 3
+  "dimensions": 2560,
+  "model": "qwen/qwen3-embedding-4b",
+  "count": 3,
+  "usage": { "prompt_tokens": 12, "total_tokens": 12, "cost": 2.4e-7 }
 }
 ```
 
@@ -314,7 +318,7 @@ Common codes:
 - `400` — missing required field or batch limit exceeded
 - `401` — missing or invalid API key
 - `404` — service not registered (for poll/unregister endpoints)
-- `503` — Ollama unreachable (health check)
+- `503` — OpenRouter unreachable (health check)
 - `500` — DB error during polling (logged, polling continues)
 
 ---
@@ -333,10 +337,10 @@ services:
     ports:
       - "3233:3000"
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
-      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
-      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
-      - EMBED_DIMENSIONS=${EMBED_DIMENSIONS:-768}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      - EMBED_MODEL=${EMBED_MODEL:-qwen/qwen3-embedding-4b}
+      - EMBED_DIMENSIONS=${EMBED_DIMENSIONS:-2560}
       - API_KEY_HASH=${API_KEY_HASH}
       - PORT=3000
     restart: unless-stopped
@@ -348,10 +352,9 @@ docker build -t text-embedder-api . && \
 docker stop text-embedder-api && \
 docker rm text-embedder-api && \
 docker run -d --name text-embedder-api -p 3233:3000 \
-  -e OLLAMA_BASE_URL=http://your-ollama:11434 \
-  -e OLLAMA_API_KEY=your-gateway-key \
-  -e EMBED_MODEL=nomic-embed-text \
-  -e EMBED_DIMENSIONS=768 \
+  -e OPENROUTER_API_KEY=sk-or-v1-... \
+  -e EMBED_MODEL=qwen/qwen3-embedding-4b \
+  -e EMBED_DIMENSIONS=2560 \
   -e API_KEY_HASH=your-hash \
   text-embedder-api
 ```

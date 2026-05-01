@@ -7,14 +7,14 @@ const { Pool } = require('pg');
 const app = express();
 app.use(express.json());
 
-const OLLAMA_BASE_URL = (process.env.OLLAMA_BASE_URL || '').replace(/\/$/, '');
-const EMBED_MODEL = process.env.EMBED_MODEL || 'nomic-embed-text';
-const EMBED_DIMENSIONS = parseInt(process.env.EMBED_DIMENSIONS || '768', 10);
+const OPENROUTER_BASE_URL = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const EMBED_MODEL = process.env.EMBED_MODEL || 'qwen/qwen3-embedding-4b';
+const EMBED_DIMENSIONS = parseInt(process.env.EMBED_DIMENSIONS || '2560', 10);
 const API_KEY_HASH = process.env.API_KEY_HASH || '';
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const VERSION = '1.0.0';
+const VERSION = '2.0.0';
 
-// service_name → { config, pool, timer, last_run, next_run, last_count }
 const registrations = new Map();
 
 // --- Auth ---
@@ -28,29 +28,24 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// --- Ollama ---
+// --- OpenRouter ---
 
-async function ollamaEmbed(texts, model) {
-  if (!OLLAMA_BASE_URL) throw new Error('OLLAMA_BASE_URL is not set');
-  const m = model || EMBED_MODEL;
-  const headers = { 'Content-Type': 'application/json' };
-  if (process.env.OLLAMA_API_KEY) headers['X-API-Key'] = process.env.OLLAMA_API_KEY;
-
-  const embeddings = await Promise.all(texts.map(async (text) => {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/embeddings`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model: m, prompt: text }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Ollama ${res.status}: ${body}`);
-    }
-    const data = await res.json();
-    return data.embedding;
-  }));
-
-  return { embeddings };
+async function embed(texts, model) {
+  if (!OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY is not set');
+  const res = await fetch(`${OPENROUTER_BASE_URL}/embeddings`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+    },
+    body: JSON.stringify({ model: model || EMBED_MODEL, input: texts }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`OpenRouter ${res.status}: ${body}`);
+  }
+  const data = await res.json();
+  return { embeddings: data.data.map(d => d.embedding), usage: data.usage };
 }
 
 // --- Polling ---
@@ -71,8 +66,7 @@ async function runPoll(reg) {
   if (rows.length === 0) return 0;
 
   const texts = rows.map(r => r._embed_text);
-  const result = await ollamaEmbed(texts, config.model || EMBED_MODEL);
-  const embeddings = result.embeddings;
+  const { embeddings } = await embed(texts, EMBED_MODEL);
 
   for (let i = 0; i < rows.length; i++) {
     const vec = `[${embeddings[i].join(',')}]`;
@@ -90,7 +84,6 @@ function schedulePolling(name) {
   if (!reg) return;
 
   const tick = async () => {
-    const start = Date.now();
     try {
       const count = await runPoll(reg);
       reg.last_run = new Date();
@@ -112,9 +105,10 @@ app.get('/', (req, res) => {
     status: 'ok',
     service: 'text-embedder-api',
     version: VERSION,
+    provider: 'openrouter',
+    provider_url: OPENROUTER_BASE_URL,
     model: EMBED_MODEL,
     dimensions: EMBED_DIMENSIONS,
-    ollama_url: OLLAMA_BASE_URL,
     registered_services: registrations.size,
     endpoints: [
       'GET  /',
@@ -132,18 +126,19 @@ app.get('/', (req, res) => {
 
 app.get('/health', async (req, res) => {
   try {
-    await ollamaEmbed(['health check'], EMBED_MODEL);
-    res.json({ status: 'ok', ollama: 'ok', model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS });
+    await embed(['health check'], EMBED_MODEL);
+    res.json({ status: 'ok', provider: 'openrouter', model: EMBED_MODEL, dimensions: EMBED_DIMENSIONS });
   } catch (err) {
-    res.status(503).json({ status: 'error', ollama: 'unreachable', error: err.message });
+    res.status(503).json({ status: 'error', provider: 'unreachable', error: err.message });
   }
 });
 
 app.get('/info', (req, res) => {
   res.json({
+    provider: 'openrouter',
+    provider_url: OPENROUTER_BASE_URL,
     model: EMBED_MODEL,
     dimensions: EMBED_DIMENSIONS,
-    ollama_url: OLLAMA_BASE_URL,
     registered_services: registrations.size,
   });
 });
@@ -154,11 +149,12 @@ app.post('/embed', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'text is required and must be a string', details: null });
   }
   try {
-    const result = await ollamaEmbed([text], model || EMBED_MODEL);
+    const { embeddings, usage } = await embed([text], model || EMBED_MODEL);
     res.json({
-      embedding: result.embeddings[0],
-      dimensions: result.embeddings[0].length,
+      embedding: embeddings[0],
+      dimensions: embeddings[0].length,
       model: model || EMBED_MODEL,
+      usage,
     });
   } catch (err) {
     res.status(500).json({ error: 'Embedding failed', details: err.message });
@@ -174,12 +170,13 @@ app.post('/embed/batch', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'texts array exceeds maximum of 100 items', details: null });
   }
   try {
-    const result = await ollamaEmbed(texts, model || EMBED_MODEL);
+    const { embeddings, usage } = await embed(texts, model || EMBED_MODEL);
     res.json({
-      embeddings: result.embeddings,
-      dimensions: result.embeddings[0]?.length ?? EMBED_DIMENSIONS,
+      embeddings,
+      dimensions: embeddings[0]?.length ?? EMBED_DIMENSIONS,
       model: model || EMBED_MODEL,
-      count: result.embeddings.length,
+      count: embeddings.length,
+      usage,
     });
   } catch (err) {
     res.status(500).json({ error: 'Batch embedding failed', details: err.message });
@@ -198,7 +195,6 @@ app.post('/register', requireAuth, (req, res) => {
   }
   if (!embedding_column) return res.status(400).json({ error: 'embedding_column is required', details: null });
 
-  // Clean up existing registration with the same name
   if (registrations.has(service_name)) {
     const existing = registrations.get(service_name);
     clearInterval(existing.timer);
@@ -277,7 +273,7 @@ app.post('/poll/:service_name', requireAuth, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`text-embedder-api v${VERSION} listening on :${PORT}`);
+  console.log(`  provider: openrouter (${OPENROUTER_BASE_URL})`);
   console.log(`  model: ${EMBED_MODEL}, dimensions: ${EMBED_DIMENSIONS}`);
-  console.log(`  ollama: ${OLLAMA_BASE_URL || '(not set)'}`);
   console.log(`  auth: ${API_KEY_HASH ? 'enabled' : 'disabled (dev mode)'}`);
 });

@@ -1,6 +1,6 @@
 # text-embedder-api
 
-A self-hosted HTTP API for vector embeddings via Ollama. Designed for use in automated pipelines — n8n, custom workflows, multi-service architectures — where multiple services need text embeddings from a single shared model without each implementing their own polling loop.
+A self-hosted HTTP API for vector embeddings via OpenRouter. Designed for use in automated pipelines — n8n, custom workflows, multi-service architectures — where multiple services need text embeddings from a single shared model without each implementing their own polling loop.
 
 Accepts text, returns vectors. Also runs an async null-embedding polling loop for any registered PostgreSQL table — so your services stay focused on their own logic while embeddings are handled in the background.
 
@@ -10,18 +10,18 @@ Accepts text, returns vectors. Also runs an async null-embedding polling loop fo
 
 **Embedding**
 - Embed a single text string → float array
-- Batch embed up to 100 strings in one call
+- Batch embed up to 100 strings in one call (native batch via OpenRouter — one API call per request)
 - Configurable model per request or globally via env var
-- Works with any Ollama-served embedding model
+- Returns OpenRouter's `usage` object (token count and cost) on every request
 
 **Async polling loop**
 - Register any PostgreSQL table with a vector column
 - Automatically polls for NULL embeddings on a configurable interval
-- Calls Ollama, writes vectors back — no code changes needed in your services
+- Calls OpenRouter, writes vectors back — no code changes needed in your services
 - Multiple services register independently, each with their own schedule
 
 **Compatible with**
-- Any Ollama embedding model (`nomic-embed-text`, `mxbai-embed-large`, etc.)
+- Any embedding model OpenRouter exposes — see https://openrouter.ai/api/v1/embeddings/models
 - Any PostgreSQL table with a `vector(N)` column (pgvector)
 - n8n, Make, custom HTTP clients
 
@@ -39,10 +39,9 @@ services:
     ports:
       - "3233:3000"
     environment:
-      - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      - OLLAMA_API_KEY=your-gateway-key
-      - EMBED_MODEL=nomic-embed-text
-      - EMBED_DIMENSIONS=768
+      - OPENROUTER_API_KEY=sk-or-v1-...
+      - EMBED_MODEL=qwen/qwen3-embedding-4b
+      - EMBED_DIMENSIONS=2560
       - API_KEY_HASH=your-sha256-hash
     restart: unless-stopped
 ```
@@ -57,10 +56,9 @@ services:
     ports:
       - "3233:3000"
     environment:
-      - OLLAMA_BASE_URL=http://your-ollama-host:11434
-      - OLLAMA_API_KEY=your-gateway-key
-      - EMBED_MODEL=nomic-embed-text
-      - EMBED_DIMENSIONS=768
+      - OPENROUTER_API_KEY=sk-or-v1-...
+      - EMBED_MODEL=qwen/qwen3-embedding-4b
+      - EMBED_DIMENSIONS=2560
       - API_KEY_HASH=your-sha256-hash
     restart: unless-stopped
 ```
@@ -76,10 +74,9 @@ git clone https://github.com/your-username/text-embedder-api.git
 cd text-embedder-api
 docker build -t text-embedder-api .
 docker run -d --name text-embedder-api -p 3233:3000 \
-  -e OLLAMA_BASE_URL=http://your-ollama-host:11434 \
-  -e OLLAMA_API_KEY=your-gateway-key \
-  -e EMBED_MODEL=nomic-embed-text \
-  -e EMBED_DIMENSIONS=768 \
+  -e OPENROUTER_API_KEY=sk-or-v1-... \
+  -e EMBED_MODEL=qwen/qwen3-embedding-4b \
+  -e EMBED_DIMENSIONS=2560 \
   text-embedder-api
 ```
 
@@ -89,7 +86,7 @@ docker run -d --name text-embedder-api -p 3233:3000 \
 curl http://localhost:3233/health
 ```
 
-Returns `{ "status": "ok", "ollama": "ok", "model": "nomic-embed-text", "dimensions": 768 }`
+Returns `{ "status": "ok", "provider": "openrouter", "model": "qwen/qwen3-embedding-4b", "dimensions": 2560 }`
 
 ### Generate your API key hash
 
@@ -117,8 +114,9 @@ Returns:
 ```json
 {
   "embedding": [0.023, -0.041, 0.118, ...],
-  "dimensions": 768,
-  "model": "nomic-embed-text"
+  "dimensions": 2560,
+  "model": "qwen/qwen3-embedding-4b",
+  "usage": { "prompt_tokens": 9, "total_tokens": 9, "cost": 1.8e-7 }
 }
 ```
 
@@ -141,9 +139,10 @@ Returns:
 ```json
 {
   "embeddings": [[...], [...], [...]],
-  "dimensions": 768,
-  "model": "nomic-embed-text",
-  "count": 3
+  "dimensions": 2560,
+  "model": "qwen/qwen3-embedding-4b",
+  "count": 3,
+  "usage": { "prompt_tokens": 12, "total_tokens": 12, "cost": 2.4e-7 }
 }
 ```
 
@@ -221,7 +220,7 @@ If text-embedder-api is down when your service starts, registration fails silent
 ### Single service with async embeddings
 ```
 Service writes document → embedding IS NULL
-text-embedder-api polls (every 5 min) → calls Ollama → writes vector back
+text-embedder-api polls (every 5 min) → calls OpenRouter → writes vector back
 Service queries with pgvector cosine similarity → semantic search works
 ```
 
@@ -230,7 +229,7 @@ Service queries with pgvector cosine similarity → semantic search works
 Service A registers table_a → polling every 5 min
 Service B registers table_b → polling every 10 min
 Service C registers table_c → polling every 1 min
-One text-embedder-api instance handles all three
+One text-embedder-api instance handles all three — same vector space, vectors comparable across tables
 ```
 
 ### n8n workflow embedding
@@ -250,7 +249,7 @@ See [API.md](API.md) for complete endpoint documentation including all parameter
 ## Requirements
 
 - Docker
-- Ollama instance with at least one embedding model pulled
+- OpenRouter API key (https://openrouter.ai/keys)
 - PostgreSQL with pgvector extension (for the polling loop feature)
 
 No other dependencies. Node.js is installed inside the container.
@@ -261,30 +260,35 @@ No other dependencies. Node.js is installed inside the container.
 
 | Environment variable | Default | Description |
 |----------------------|---------|-------------|
-| `OLLAMA_BASE_URL` | — | Base URL of your Ollama instance (required) |
-| `OLLAMA_API_KEY` | — | API key forwarded as `X-API-Key` to Ollama (e.g. Caddy gateway auth). Leave blank if your Ollama is unprotected |
-| `EMBED_MODEL` | `nomic-embed-text` | Default embedding model |
-| `EMBED_DIMENSIONS` | `768` | Output dimensions (must match your vector column size) |
+| `OPENROUTER_API_KEY` | — | Required. Get one at https://openrouter.ai/keys |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Override only if using a self-hosted gateway in front of OpenRouter |
+| `EMBED_MODEL` | `qwen/qwen3-embedding-4b` | Default embedding model. Changing this invalidates all existing vectors |
+| `EMBED_DIMENSIONS` | `2560` | Output dimensions (must match your vector column size) |
 | `API_KEY_HASH` | — | SHA-256 hex of your raw API key. If unset, auth is disabled (dev mode) |
 | `PORT` | `3000` | Port the server listens on inside the container |
 
 ### Choosing an embedding model
 
+The default `qwen/qwen3-embedding-4b` is chosen as a long-term lock-in:
+
+- **Open-weight** — self-hostable via vLLM if OpenRouter ever fails. Vectors remain reproducible
+- **Multilingual** — 100+ languages, top-tier MTEB retrieval scores (~70)
+- **Long context** — 32K tokens, handles full documents without chunking
+- **2560-dim** — strong information density for fine-grained semantic distinctions
+
+Other models OpenRouter exposes (browse at https://openrouter.ai/api/v1/embeddings/models):
+
 | Model | Dimensions | Notes |
 |-------|-----------|-------|
-| `nomic-embed-text` | 768 | Fast, good quality, recommended for most use cases |
-| `mxbai-embed-large` | 1024 | Higher quality, slower |
-| `all-minilm` | 384 | Fastest, lower quality |
+| `qwen/qwen3-embedding-4b` | 2560 | Default. Open-weight, multilingual, 32K context |
+| `baai/bge-m3` | 1024 | Open-weight, multilingual, 8K context, cheaper |
+| `openai/text-embedding-3-large` | 3072 | Closed-source, top retrieval quality |
+| `openai/text-embedding-3-small` | 1536 | Cheaper closed-source baseline |
 
-Pull models via Ollama before starting:
-```bash
-ollama pull nomic-embed-text
-```
+> ⚠️ Switching models invalidates existing vectors — they live in different semantic spaces and cannot be compared. To switch: `UPDATE table SET embedding = NULL` and `ALTER TABLE ... ALTER COLUMN embedding TYPE vector(N)` to the new dimension, then let the polling loop refill.
 
 ---
 
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
-
-Ollama is a dependency with its own license terms. This project's MIT license applies solely to the Node.js wrapper code in this repository.
