@@ -13,7 +13,9 @@ const EMBED_MODEL = process.env.EMBED_MODEL || 'qwen/qwen3-embedding-4b';
 const EMBED_DIMENSIONS = parseInt(process.env.EMBED_DIMENSIONS || '2560', 10);
 const API_KEY_HASH = process.env.API_KEY_HASH || '';
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
+
+const VALID_VECTOR_TYPES = new Set(['vector', 'halfvec']);
 
 const registrations = new Map();
 
@@ -68,10 +70,11 @@ async function runPoll(reg) {
   const texts = rows.map(r => r._embed_text);
   const { embeddings } = await embed(texts, EMBED_MODEL);
 
+  const cast = config.vector_type;
   for (let i = 0; i < rows.length; i++) {
     const vec = `[${embeddings[i].join(',')}]`;
     await pool.query(
-      `UPDATE ${table} SET ${embedding_column} = $1::vector WHERE ${id_column} = $2`,
+      `UPDATE ${table} SET ${embedding_column} = $1::${cast} WHERE ${id_column} = $2`,
       [vec, rows[i][id_column]]
     );
   }
@@ -184,7 +187,7 @@ app.post('/embed/batch', requireAuth, async (req, res) => {
 });
 
 app.post('/register', requireAuth, (req, res) => {
-  const { service_name, db_url, table, id_column, text_columns, embedding_column, batch_size, interval_seconds } = req.body;
+  const { service_name, db_url, table, id_column, text_columns, embedding_column, batch_size, interval_seconds, vector_type } = req.body;
 
   if (!service_name) return res.status(400).json({ error: 'service_name is required', details: null });
   if (!db_url) return res.status(400).json({ error: 'db_url is required', details: null });
@@ -194,6 +197,10 @@ app.post('/register', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'text_columns must be a non-empty array', details: null });
   }
   if (!embedding_column) return res.status(400).json({ error: 'embedding_column is required', details: null });
+  const vt = vector_type || 'vector';
+  if (!VALID_VECTOR_TYPES.has(vt)) {
+    return res.status(400).json({ error: `vector_type must be one of: ${[...VALID_VECTOR_TYPES].join(', ')}`, details: null });
+  }
 
   if (registrations.has(service_name)) {
     const existing = registrations.get(service_name);
@@ -209,6 +216,7 @@ app.post('/register', requireAuth, (req, res) => {
     id_column,
     text_columns,
     embedding_column,
+    vector_type: vt,
     batch_size: batch_size || 50,
     interval_seconds: interval_seconds || 300,
   };
@@ -221,6 +229,7 @@ app.post('/register', requireAuth, (req, res) => {
     registered: true,
     service_name,
     table,
+    vector_type: config.vector_type,
     interval_seconds: config.interval_seconds,
     next_run: reg.next_run,
   });
@@ -245,6 +254,7 @@ app.get('/registrations', requireAuth, (req, res) => {
       service_name: name,
       table: reg.config.table,
       embedding_column: reg.config.embedding_column,
+      vector_type: reg.config.vector_type,
       batch_size: reg.config.batch_size,
       interval_seconds: reg.config.interval_seconds,
       last_run: reg.last_run,

@@ -1,6 +1,6 @@
 # text-embedder-api Documentation
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Base URL:** `http://localhost:3233`
 **Health check:** `GET /health` — returns status, embedding-provider connectivity, model, and dimensions
 
@@ -198,6 +198,7 @@ Content-Type: application/json
 | `id_column` | string | — | Primary key column name (required) |
 | `text_columns` | string[] | — | Columns to concatenate for embedding (required) |
 | `embedding_column` | string | — | Vector column to write embeddings to (required) |
+| `vector_type` | string | `vector` | pgvector type used for the cast on UPDATE. Set to `halfvec` if your column is `halfvec(N)` (16-bit float, supports HNSW up to 4000 dims). Allowed values: `vector`, `halfvec` |
 | `batch_size` | number | `50` | Records to embed per polling run |
 | `interval_seconds` | number | `300` | Polling interval in seconds |
 
@@ -209,6 +210,7 @@ Content-Type: application/json
   "registered": true,
   "service_name": "my-service",
   "table": "documents",
+  "vector_type": "halfvec",
   "interval_seconds": 300,
   "next_run": "2026-04-23T19:05:00.000Z"
 }
@@ -268,6 +270,7 @@ X-API-Key: your-raw-key
     "service_name": "my-service",
     "table": "documents",
     "embedding_column": "embedding",
+    "vector_type": "halfvec",
     "batch_size": 50,
     "interval_seconds": 300,
     "last_run": "2026-04-23T19:00:00.000Z",

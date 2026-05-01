@@ -159,10 +159,13 @@ curl -X POST http://localhost:3233/register \
     "id_column": "id",
     "text_columns": ["title", "summary"],
     "embedding_column": "embedding",
+    "vector_type": "halfvec",
     "batch_size": 50,
     "interval_seconds": 300
   }'
 ```
+
+`vector_type` (optional, default `"vector"`) tells the polling loop how to cast on `UPDATE`. Use `"halfvec"` if your column is `halfvec(N)` — half-precision storage, supports HNSW up to 4000 dims, recommended for `qwen/qwen3-embedding-4b` at 2560-dim.
 
 After registration, text-embedder-api polls the table every 5 minutes. Any row where `embedding IS NULL` gets embedded and updated automatically. Your service never calls text-embedder-api again unless it wants to re-register after a restart.
 
@@ -201,6 +204,7 @@ async function registerWithEmbeddingApi() {
         id_column: 'id',
         text_columns: ['title', 'summary'],
         embedding_column: 'embedding',
+        vector_type: 'halfvec',
         batch_size: 50,
         interval_seconds: 300,
       }),

@@ -7,6 +7,31 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.1.0] — 2026-04-30
+
+### Added
+
+- **`vector_type` field on `POST /register`** — controls the pgvector type used in the polling loop's `UPDATE ... SET embedding = $1::<type>` cast. Allowed values: `vector` (default, backward-compatible) or `halfvec`. Set to `halfvec` when your embedding column is `halfvec(N)`, which supports HNSW indexing up to 4000 dimensions (vs `vector`'s 2000-dim cap) and halves storage cost.
+- `vector_type` is now echoed in `POST /register` response and listed per registration in `GET /registrations`.
+
+### Why halfvec matters at 2560-dim
+
+The locked-in model `qwen/qwen3-embedding-4b` produces 2560-dim vectors. pgvector's HNSW index only supports `vector` columns up to 2000 dims, so HNSW is impossible on `vector(2560)`. Using `halfvec(2560)` enables HNSW (limit 4000) at the cost of float16 precision — typically <0.5% recall@10 difference for cosine retrieval, while halving storage.
+
+### Recommended consumer migration
+
+```sql
+UPDATE <table> SET embedding = NULL;
+ALTER TABLE <table> ALTER COLUMN embedding TYPE halfvec(2560);
+-- Add HNSW once row count justifies it (sub-100ms seq scan up to ~5K rows):
+CREATE INDEX <table>_embedding_idx ON <table>
+  USING hnsw (embedding halfvec_cosine_ops);
+```
+
+Then re-register with `vector_type: "halfvec"` so the polling loop casts to the right type on write.
+
+---
+
 ## [2.0.0] — 2026-04-30
 
 **Breaking change.** Migrated from Ollama to OpenRouter as the embedding provider. Locked in `qwen/qwen3-embedding-4b` (2560-dim, multilingual, 32K context, open-weight) as the canonical model — same vector space across all consumers (stighive-graph, konstant-knowledge, etc.) so vectors are cross-comparable for related-document discovery.
