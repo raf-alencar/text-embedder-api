@@ -1,6 +1,6 @@
 {
   "name": "text-embedder-api",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Self-hosted HTTP API for vector embeddings via OpenRouter with async PostgreSQL polling",
   "main": "server.js",
   "scripts": {

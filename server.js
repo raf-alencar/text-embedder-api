@@ -13,7 +13,7 @@ const EMBED_MODEL = process.env.EMBED_MODEL || 'qwen/qwen3-embedding-4b';
 const EMBED_DIMENSIONS = parseInt(process.env.EMBED_DIMENSIONS || '2560', 10);
 const API_KEY_HASH = process.env.API_KEY_HASH || '';
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const VERSION = '2.1.0';
+const VERSION = '2.1.1';
 
 const VALID_VECTOR_TYPES = new Set(['vector', 'halfvec']);
 
@@ -42,12 +42,42 @@ async function embed(texts, model) {
     },
     body: JSON.stringify({ model: model || EMBED_MODEL, input: texts }),
   });
+
+  const bodyText = await res.text();
+
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`OpenRouter ${res.status}: ${body}`);
+    throw new Error(`OpenRouter ${res.status}: ${bodyText.slice(0, 500)}`);
   }
-  const data = await res.json();
-  return { embeddings: data.data.map(d => d.embedding), usage: data.usage };
+
+  let data;
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    throw new Error(`OpenRouter returned non-JSON: ${bodyText.slice(0, 200)}`);
+  }
+
+  // OpenRouter sometimes returns 200 with an error body (upstream provider failures, rate limits)
+  if (data.error) {
+    const msg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+    throw new Error(`OpenRouter upstream error: ${msg}`);
+  }
+
+  if (!Array.isArray(data.data)) {
+    throw new Error(`OpenRouter response missing 'data' array. Body: ${bodyText.slice(0, 300)}`);
+  }
+
+  if (data.data.length !== texts.length) {
+    throw new Error(`OpenRouter returned ${data.data.length} embeddings for ${texts.length} inputs`);
+  }
+
+  const embeddings = data.data.map((d, i) => {
+    if (!Array.isArray(d.embedding)) {
+      throw new Error(`OpenRouter response item ${i} missing 'embedding' array`);
+    }
+    return d.embedding;
+  });
+
+  return { embeddings, usage: data.usage };
 }
 
 // --- Polling ---

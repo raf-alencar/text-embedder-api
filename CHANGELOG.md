@@ -7,6 +7,14 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.1.1] — 2026-05-01
+
+### Fixed
+
+- **Embed function no longer crashes on malformed OpenRouter responses.** Previously, when OpenRouter returned HTTP 200 with an error body (a known behavior under upstream-provider failures or rate-limit edge cases), `embed()` would throw `Cannot read properties of undefined (reading 'map')` and surface as an uninformative HTTP 500. The function now: reads body unconditionally, parses defensively, surfaces `data.error` from the upstream when present, validates `data.data` is an array of expected length, and validates each item has an `embedding` array. Errors now name the actual upstream cause instead of a JS runtime error.
+
+---
+
 ## [2.1.0] — 2026-04-30
 
 ### Added
